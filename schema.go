@@ -97,6 +97,20 @@ func parseSchemas(zr *zip.Reader) (map[string]*tableSchema, error) {
 		}
 	}
 
+	// Override nullability for columns with sentinel NULL values.
+	// These columns are marked NOT NULL in the FAA schema but contain
+	// placeholder values (e.g., "NOT ASSIGNED") that we convert to NULL.
+	for key := range sentinelNulls {
+		tableName, colName := key[0], key[1]
+		if ts, ok := tables[tableName]; ok {
+			for i := range ts.columns {
+				if ts.columns[i].name == colName {
+					ts.columns[i].nullable = true
+				}
+			}
+		}
+	}
+
 	return tables, nil
 }
 
@@ -120,13 +134,31 @@ func normalizeCR(data []byte) []byte {
 	return buf.Bytes()
 }
 
-// generateDDL produces CREATE TABLE SQL statements from the parsed schemas and
-// foreign key definitions.
-func generateDDL(tables map[string]*tableSchema, fks []foreignKey) []string {
+// generateDDL produces CREATE TABLE and CREATE UNIQUE INDEX SQL statements from
+// the parsed schemas and foreign key definitions. Unique indexes are derived
+// from FK parent columns so that PRAGMA foreign_key_check can validate the data.
+// Returns two slices: CREATE TABLE statements and CREATE UNIQUE INDEX statements,
+// so the caller can load data between creating tables and creating indexes.
+func generateDDL(tables map[string]*tableSchema, fks []foreignKey) (createTables []string, createIndexes []string) {
 	// Build a lookup from child table to its foreign keys.
 	fkMap := make(map[string][]foreignKey)
 	for _, fk := range fks {
 		fkMap[fk.childTable] = append(fkMap[fk.childTable], fk)
+	}
+
+	// Collect unique indexes needed on parent tables (deduplicated).
+	type parentKey struct {
+		table   string
+		columns string // joined for dedup
+	}
+	seen := make(map[parentKey]bool)
+	var uniqueIndexes []foreignKey
+	for _, fk := range fks {
+		pk := parentKey{fk.parentTable, strings.Join(fk.columns, ",")}
+		if !seen[pk] {
+			seen[pk] = true
+			uniqueIndexes = append(uniqueIndexes, fk)
+		}
 	}
 
 	// Sort table names for deterministic output.
@@ -136,7 +168,7 @@ func generateDDL(tables map[string]*tableSchema, fks []foreignKey) []string {
 	}
 	sort.Strings(names)
 
-	stmts := make([]string, 0, len(names))
+	createTables = make([]string, 0, len(names))
 	for _, name := range names {
 		ts := tables[name]
 		var b strings.Builder
@@ -170,8 +202,24 @@ func generateDDL(tables map[string]*tableSchema, fks []foreignKey) []string {
 		}
 
 		b.WriteString(");")
-		stmts = append(stmts, b.String())
+		createTables = append(createTables, b.String())
 	}
 
-	return stmts
+	// Generate CREATE UNIQUE INDEX for each FK parent key.
+	sort.Slice(uniqueIndexes, func(i, j int) bool {
+		return uniqueIndexes[i].parentTable < uniqueIndexes[j].parentTable
+	})
+	createIndexes = make([]string, 0, len(uniqueIndexes))
+	for _, fk := range uniqueIndexes {
+		quotedCols := make([]string, len(fk.columns))
+		for j, c := range fk.columns {
+			quotedCols[j] = fmt.Sprintf("%q", c)
+		}
+		idxName := fmt.Sprintf("idx_%s_%s", fk.parentTable, strings.Join(fk.columns, "_"))
+		stmt := fmt.Sprintf("CREATE UNIQUE INDEX %q ON %q (%s);",
+			idxName, fk.parentTable, strings.Join(quotedCols, ", "))
+		createIndexes = append(createIndexes, stmt)
+	}
+
+	return createTables, createIndexes
 }

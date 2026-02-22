@@ -173,55 +173,60 @@ func TestExtract_NullHandling(t *testing.T) {
 
 func TestConvertValue(t *testing.T) {
 	tests := []struct {
-		name string
-		val  string
-		col  columnDef
-		want interface{}
+		name      string
+		val       string
+		col       columnDef
+		tableName string
+		want      interface{}
 	}{
 		{
 			name: "empty nullable returns nil",
-			val:  "",
-			col:  columnDef{name: "X", dataType: "TEXT", nullable: true},
-			want: nil,
+			val:  "", col: columnDef{name: "X", dataType: "TEXT", nullable: true},
+			tableName: "TEST", want: nil,
 		},
 		{
 			name: "empty non-nullable returns empty string",
-			val:  "",
-			col:  columnDef{name: "X", dataType: "TEXT", nullable: false},
-			want: "",
+			val:  "", col: columnDef{name: "X", dataType: "TEXT", nullable: false},
+			tableName: "TEST", want: "",
 		},
 		{
 			name: "REAL numeric converts to float",
-			val:  "123.45",
-			col:  columnDef{name: "X", dataType: "REAL", nullable: false},
-			want: 123.45,
+			val:  "123.45", col: columnDef{name: "X", dataType: "REAL", nullable: false},
+			tableName: "TEST", want: 123.45,
 		},
 		{
 			name: "REAL non-numeric returns string",
-			val:  "abc",
-			col:  columnDef{name: "X", dataType: "REAL", nullable: false},
-			want: "abc",
+			val:  "abc", col: columnDef{name: "X", dataType: "REAL", nullable: false},
+			tableName: "TEST", want: "abc",
 		},
 		{
 			name: "TEXT returns string",
-			val:  "hello",
-			col:  columnDef{name: "X", dataType: "TEXT", nullable: false},
-			want: "hello",
+			val:  "hello", col: columnDef{name: "X", dataType: "TEXT", nullable: false},
+			tableName: "TEST", want: "hello",
 		},
 		{
 			name: "REAL empty nullable returns nil",
-			val:  "",
-			col:  columnDef{name: "X", dataType: "REAL", nullable: true},
-			want: nil,
+			val:  "", col: columnDef{name: "X", dataType: "REAL", nullable: true},
+			tableName: "TEST", want: nil,
+		},
+		{
+			name: "sentinel NOT ASSIGNED becomes nil",
+			val:  "NOT ASSIGNED", col: columnDef{name: "DP_COMPUTER_CODE", dataType: "TEXT", nullable: false},
+			tableName: "DP_BASE", want: nil,
+		},
+		{
+			name: "NOT ASSIGNED on non-sentinel column stays string",
+			val:  "NOT ASSIGNED", col: columnDef{name: "OTHER", dataType: "TEXT", nullable: false},
+			tableName: "DP_BASE", want: "NOT ASSIGNED",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := convertValue(tt.val, tt.col)
+			got := convertValue(tt.val, tt.col, tt.tableName)
 			if got != tt.want {
-				t.Errorf("convertValue(%q, %+v) = %v (%T), want %v (%T)",
-					tt.val, tt.col, got, got, tt.want, tt.want)
+				t.Errorf("convertValue(%q, %+v, %q) = %v (%T), want %v (%T)",
+					tt.val, tt.col, tt.tableName, got, got, tt.want, tt.want)
 			}
 		})
 	}
@@ -267,9 +272,12 @@ func TestGenerateDDL(t *testing.T) {
 		{childTable: "TEST_CHILD", columns: []string{"BASE_ID"}, parentTable: "TEST_BASE"},
 	}
 
-	stmts := generateDDL(tables, fks)
-	if len(stmts) != 2 {
-		t.Fatalf("expected 2 statements, got %d", len(stmts))
+	createTables, createIndexes := generateDDL(tables, fks)
+	if len(createTables) != 2 {
+		t.Fatalf("expected 2 CREATE TABLE statements, got %d", len(createTables))
+	}
+	if len(createIndexes) != 1 {
+		t.Fatalf("expected 1 CREATE UNIQUE INDEX statement, got %d", len(createIndexes))
 	}
 
 	// Verify by executing against an in-memory SQLite database.
@@ -279,9 +287,14 @@ func TestGenerateDDL(t *testing.T) {
 	}
 	defer db.Close()
 
-	for _, stmt := range stmts {
+	for _, stmt := range createTables {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Errorf("exec DDL failed: %v\n%s", err, stmt)
+		}
+	}
+	for _, stmt := range createIndexes {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Errorf("exec index failed: %v\n%s", err, stmt)
 		}
 	}
 
@@ -305,6 +318,60 @@ func TestGenerateDDL(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected FK from TEST_CHILD.BASE_ID to TEST_BASE")
+	}
+}
+
+func TestExtract_UniqueIndexes(t *testing.T) {
+	db := openTestDB(t)
+	var count int
+	err := db.QueryRow("SELECT count(*) FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'").Scan(&count)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count != 18 {
+		t.Errorf("expected 18 unique indexes, got %d", count)
+	}
+
+	// Verify NAV_BASE has a unique index (composite key we fixed).
+	rows, err := db.Query("PRAGMA index_info(idx_NAV_BASE_NAV_ID_NAV_TYPE_CITY_COUNTRY_CODE)")
+	if err != nil {
+		t.Fatalf("pragma: %v", err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		found = true
+	}
+	if !found {
+		t.Error("expected unique index on NAV_BASE")
+	}
+}
+
+func TestExtract_ForeignKeyCheck(t *testing.T) {
+	db := openTestDB(t)
+	rows, err := db.Query("PRAGMA foreign_key_check")
+	if err != nil {
+		t.Fatalf("foreign_key_check: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var table, rowid, parent, fkid string
+		if err := rows.Scan(&table, &rowid, &parent, &fkid); err != nil {
+			t.Fatalf("scan: %v", err)
+		}
+		t.Errorf("FK violation: table=%s rowid=%s parent=%s fkid=%s", table, rowid, parent, fkid)
+	}
+}
+
+func TestExtract_DPNotAssignedIsNull(t *testing.T) {
+	db := openTestDB(t)
+	var count int
+	err := db.QueryRow("SELECT count(*) FROM DP_BASE WHERE DP_COMPUTER_CODE IS NULL").Scan(&count)
+	if err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	if count == 0 {
+		t.Error("expected NULL DP_COMPUTER_CODE values (converted from 'NOT ASSIGNED')")
 	}
 }
 
