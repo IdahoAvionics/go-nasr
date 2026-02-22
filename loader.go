@@ -91,7 +91,7 @@ func loadCSV(db *sql.DB, r io.Reader, schema *tableSchema) error {
 		vals := make([]interface{}, len(schema.columns))
 		for i, col := range schema.columns {
 			if i < len(row) {
-				vals[i] = convertValue(row[i], col)
+				vals[i] = convertValue(row[i], col, schema.name)
 			} else {
 				vals[i] = nil
 			}
@@ -105,7 +105,19 @@ func loadCSV(db *sql.DB, r io.Reader, schema *tableSchema) error {
 	return tx.Commit()
 }
 
-func convertValue(val string, col columnDef) interface{} {
+// sentinelNulls maps (table, column) pairs to sentinel values that should be
+// treated as NULL. These are placeholder values in the FAA source data that
+// prevent unique constraints from working correctly.
+var sentinelNulls = map[[2]string]string{
+	{"DP_BASE", "DP_COMPUTER_CODE"}: "NOT ASSIGNED",
+	{"DP_APT", "DP_COMPUTER_CODE"}:  "NOT ASSIGNED",
+	{"DP_RTE", "DP_COMPUTER_CODE"}:  "NOT ASSIGNED",
+}
+
+func convertValue(val string, col columnDef, tableName string) interface{} {
+	if sentinel, ok := sentinelNulls[[2]string{tableName, col.name}]; ok && val == sentinel {
+		return nil
+	}
 	if val == "" && col.nullable {
 		return nil
 	}

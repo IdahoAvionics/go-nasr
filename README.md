@@ -36,21 +36,46 @@ func main() {
 
 The input zip can be downloaded from the [FAA NASR subscription page](https://www.faa.gov/air_traffic/flight_info/aeronav/aero_data/NASR_Subscription/). The output database must not already exist.
 
+## Foreign keys
+
+The database defines 38 foreign key relationships between related tables within each data group (e.g., APT_RWY references APT_BASE on SITE_NO). Foreign key enforcement is off by default. To enable it:
+
+```sql
+PRAGMA foreign_keys = ON;
+```
+
+Cross-group foreign keys (e.g., ILS referencing APT) are intentionally omitted because the source data contains references to records that may not exist in other groups.
+
 ## What's in the database
 
-The database contains 63 tables covering airports, navaids, fixes, airways, airspace, procedures, and more:
+The database contains 63 tables across 24 groups covering airports, navaids, fixes, airways, airspace, procedures, and more:
 
-| Group | Tables | Example data |
+| Group | Tables | Description |
 |-------|--------|-------------|
-| APT | APT_BASE, APT_RWY, APT_RWY_END, APT_ARS, APT_ATT, APT_CON, APT_RMK | ~19,000 airports with runways, contacts, remarks |
-| NAV | NAV_BASE, NAV_CKPT, NAV_RMK | ~1,600 navaids (VOR, NDB, TACAN, etc.) |
-| FIX | FIX_BASE, FIX_CHRT, FIX_NAV | ~70,000 fixes |
-| AWY | AWY_BASE, AWY_SEG_ALT | Airways and segments |
-| ILS | ILS_BASE, ILS_GS, ILS_DME, ILS_MKR, ILS_RMK | ILS/LOC systems |
-| ATC | ATC_BASE, ATC_SVC, ATC_ATIS, ATC_RMK | ATC facilities |
-| STAR/DP | STAR_BASE, STAR_APT, STAR_RTE, DP_BASE, DP_APT, DP_RTE | STARs and departure procedures |
-| MTR | MTR_BASE, MTR_PT, MTR_AGY, MTR_SOP, MTR_TERR, MTR_WDTH | Military training routes |
-| + 15 more groups | CDR, AWOS, COM, FSS, HPF, PFR, ARB, WXL, MAA, PJA, FRQ, LID, CLS_ARSP, MIL_OPS, RDR | |
+| APT | APT_BASE, APT_RWY, APT_RWY_END, APT_ARS, APT_ATT, APT_CON, APT_RMK | ~19,600 airports with runways, runway ends, arresting systems, attendance, contacts, remarks |
+| ARB | ARB_BASE, ARB_SEG | ~38 ARTCC boundary segments |
+| ATC | ATC_BASE, ATC_SVC, ATC_ATIS, ATC_RMK | ~3,600 ATC facilities with services, ATIS, remarks |
+| AWOS | AWOS | ~2,600 automated weather observing systems |
+| AWY | AWY_BASE, AWY_SEG_ALT | ~1,500 airways with segment altitudes |
+| CDR | CDR | ~41,000 coded departure routes |
+| CLS_ARSP | CLS_ARSP | ~960 class airspace areas (B, C, D, E) |
+| COM | COM | ~1,800 communication outlets |
+| DP | DP_BASE, DP_APT, DP_RTE | ~1,200 instrument departure procedures with airports, routes |
+| FIX | FIX_BASE, FIX_CHRT, FIX_NAV | ~70,000 fixes with chart references, associated navaids |
+| FRQ | FRQ | ~40,600 enroute communication frequencies |
+| FSS | FSS_BASE, FSS_RMK | ~75 flight service stations with remarks |
+| HPF | HPF_BASE, HPF_SPD_ALT, HPF_CHRT, HPF_RMK | ~15,700 preferred routes with speed/altitude, charts, remarks |
+| ILS | ILS_BASE, ILS_GS, ILS_DME, ILS_MKR, ILS_RMK | ~1,600 ILS/LOC systems with glide slopes, DME, markers, remarks |
+| LID | LID | ~31,200 location identifiers |
+| MAA | MAA_BASE, MAA_SHP, MAA_RMK, MAA_CON | ~170 military airspace areas with shapes, remarks, contacts |
+| MIL_OPS | MIL_OPS | ~200 military operations points |
+| MTR | MTR_BASE, MTR_PT, MTR_AGY, MTR_SOP, MTR_TERR, MTR_WDTH | ~520 military training routes with points, agencies, SOPs, terrain, widths |
+| NAV | NAV_BASE, NAV_CKPT, NAV_RMK | ~1,600 navaids (VOR, NDB, TACAN, etc.) with checkpoints, remarks |
+| PFR | PFR_BASE, PFR_SEG, PFR_RMT_FMT | ~13,300 preferred routes with segments, remote formats |
+| PJA | PJA_BASE, PJA_CON | ~690 parachute jump areas with contacts |
+| RDR | RDR | ~370 radar facilities |
+| STAR | STAR_BASE, STAR_APT, STAR_RTE | ~690 standard terminal arrival routes with airports, routes |
+| WXL | WXL_BASE, WXL_SVC | ~3,400 weather locations with services |
 
 Table schemas are derived at runtime from the FAA's own data structure definitions, so the library adapts automatically if the FAA adds or changes columns.
 
@@ -77,13 +102,3 @@ SELECT NAV_ID, NAME, FREQ, LAT_DECIMAL, LONG_DECIMAL
 FROM NAV_BASE
 WHERE STATE_CODE = 'ID' AND NAV_TYPE = 'VOR/DME';
 ```
-
-## Foreign keys
-
-The database defines 38 foreign key relationships between related tables within each data group (e.g., APT_RWY references APT_BASE on SITE_NO). Foreign key enforcement is off by default. To enable it:
-
-```sql
-PRAGMA foreign_keys = ON;
-```
-
-Cross-group foreign keys (e.g., ILS referencing APT) are intentionally omitted because the source data contains references to records that may not exist in other groups.
