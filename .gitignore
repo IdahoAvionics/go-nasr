@@ -1,1 +1,3 @@
 *.zip
+!testdata/*.zip
+*.sqlite3*

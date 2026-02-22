@@ -12,7 +12,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-const testZipPath = "/Users/jacobmarble/projects/go-nasr/28DaySubscription_Effective_2026-02-19.zip"
+const testZipPath = "testdata/28DaySubscription_test.zip"
 
 var (
 	testDBPath string
@@ -20,32 +20,25 @@ var (
 )
 
 func TestMain(m *testing.M) {
-	if _, err := os.Stat(testZipPath); err == nil {
-		dir, err := os.MkdirTemp("", "nasr-test-*")
-		if err != nil {
-			panic(err)
-		}
-		testTmpDir = dir
-		testDBPath = filepath.Join(dir, "nasr.db")
-		if err := Extract(testZipPath, testDBPath); err != nil {
-			os.RemoveAll(dir)
-			panic(err)
-		}
+	dir, err := os.MkdirTemp("", "nasr-test-*")
+	if err != nil {
+		panic(err)
+	}
+	testTmpDir = dir
+	testDBPath = filepath.Join(dir, "nasr.db")
+	if err := Extract(testZipPath, testDBPath); err != nil {
+		os.RemoveAll(dir)
+		panic(err)
 	}
 
 	code := m.Run()
 
-	if testTmpDir != "" {
-		os.RemoveAll(testTmpDir)
-	}
+	os.RemoveAll(testTmpDir)
 	os.Exit(code)
 }
 
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	if testDBPath == "" {
-		t.Skip("NASR subscription zip not found")
-	}
 	db, err := sql.Open("sqlite", testDBPath)
 	if err != nil {
 		t.Fatalf("open test db: %v", err)
@@ -63,9 +56,6 @@ func TestExtract_MissingInput(t *testing.T) {
 }
 
 func TestExtract_OutputExists(t *testing.T) {
-	if _, err := os.Stat(testZipPath); err != nil {
-		t.Skip("NASR subscription zip not found")
-	}
 	dir := t.TempDir()
 	outPath := filepath.Join(dir, "out.db")
 	if err := os.WriteFile(outPath, []byte("exists"), 0644); err != nil {
@@ -233,10 +223,6 @@ func TestConvertValue(t *testing.T) {
 }
 
 func TestParseSchemas(t *testing.T) {
-	if _, err := os.Stat(testZipPath); err != nil {
-		t.Skip("NASR subscription zip not found")
-	}
-
 	innerZip, _, err := openInnerCSVZip(testZipPath)
 	if err != nil {
 		t.Fatalf("openInnerCSVZip: %v", err)
@@ -375,12 +361,8 @@ func TestExtract_DPNotAssignedIsNull(t *testing.T) {
 	}
 }
 
-// TestOpenInnerCSVZip verifies that the real zip contains the expected inner CSV zip.
+// TestOpenInnerCSVZip verifies that the test zip contains the expected inner CSV zip.
 func TestOpenInnerCSVZip(t *testing.T) {
-	if _, err := os.Stat(testZipPath); err != nil {
-		t.Skip("NASR subscription zip not found")
-	}
-
 	zr, data, err := openInnerCSVZip(testZipPath)
 	if err != nil {
 		t.Fatalf("openInnerCSVZip: %v", err)
