@@ -25,7 +25,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	testTmpDir = dir
-	testDBPath = filepath.Join(dir, "nasr.db")
+	testDBPath = filepath.Join(dir, "nasr.sqlite3")
 	if err := Extract(testZipPath, testDBPath); err != nil {
 		os.RemoveAll(dir)
 		panic(err)

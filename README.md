@@ -26,7 +26,7 @@ import (
 func main() {
 	err := nasr.Extract(
 		"28DaySubscription_Effective_2026-02-19.zip",
-		"nasr.db",
+		"nasr.sqlite3",
 	)
 	if err != nil {
 		log.Fatal(err)
@@ -82,7 +82,7 @@ Table schemas are derived at runtime from the FAA's own data structure definitio
 ## Querying the database
 
 ```bash
-sqlite3 nasr.db
+sqlite3 nasr.sqlite3
 ```
 
 ```sql
